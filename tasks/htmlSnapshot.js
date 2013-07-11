@@ -13,12 +13,15 @@ module.exports = function(grunt) {
         path        = require("path"),
         phantom     = require("grunt-lib-phantomjs").init(grunt);
 
+    var urlsArray;
+
     var asset = path.join.bind(null, __dirname, '..');
 
     grunt.registerMultiTask('htmlSnapshot','fetch html snapshots', function(){
 
         var options = this.options({
           urls: [],
+          urlsFunction: null,
           msWaitForPages: 500,
           fileNamePrefix: 'snapshot_',
           snapshotPath: '',
@@ -31,8 +34,20 @@ module.exports = function(grunt) {
         };
 
         var isLastUrl = function(url){
-            return options.urls[options.urls.length - 1] === url;
+            return urlsArray[urlsArray.length - 1] === url;
         };
+
+        var getUrls = function(cb) {
+            if (options.urlsFunction) {
+                return options.urlsFunction( function(err, callbackUrls) {
+                    urlsArray = callbackUrls;
+                    cb();
+                })
+            }
+
+            urlsArray = options.urls;
+            cb();
+        }
 
         phantom.on("error.onError", function (msg, trace) {
             grunt.log.writeln('error: ' + msg);
@@ -47,15 +62,15 @@ module.exports = function(grunt) {
 
             var plainUrl = url.replace(sitePath, '');
 
-            var fileName =  options.snapshotPath + 
-                            options.fileNamePrefix + 
+            var fileName =  options.snapshotPath +
+                            options.fileNamePrefix +
                             sanitizeFilename(plainUrl) +
                             '.html';
 
             if (options.removeScripts){
                 msg = msg.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
             }
-            
+
             grunt.file.write(fileName, msg);
             grunt.log.writeln(fileName, 'written');
             phantom.halt();
@@ -63,32 +78,32 @@ module.exports = function(grunt) {
             isLastUrl(plainUrl) && done();
         });
 
-        var done = this.async();
-
-        var urls = options.urls;
         var sitePath = options.sitePath;
 
-        grunt.util.async.forEachSeries(urls, function(url, next) {
-            
-            phantom.spawn(sitePath + url, {
-                // Additional PhantomJS options.
-                options: {
-                    phantomScript: asset('phantomjs/bridge.js'),
-                    msWaitForPages: options.msWaitForPages
-                },
-                // Complete the task when done.
-                done: function (err) {
-                    if (err) {
-                        // If there was an error, abort the series.
-                        done();
-                    } 
-                    else {
-                        // Otherwise, process next url.
-                        next();
+        var done = this.async();
+        getUrls( function() {
+            grunt.util.async.forEachSeries(urlsArray, function(url, next) {
+
+                phantom.spawn(sitePath + url, {
+                    // Additional PhantomJS options.
+                    options: {
+                        phantomScript: asset('phantomjs/bridge.js'),
+                        msWaitForPages: options.msWaitForPages
+                    },
+                    // Complete the task when done.
+                    done: function (err) {
+                        if (err) {
+                            // If there was an error, abort the series.
+                            done();
+                        }
+                        else {
+                            // Otherwise, process next url.
+                            next();
+                        }
                     }
-                }
+                });
             });
+            grunt.log.writeln('running html-snapshot task...hold your horses');
         });
-        grunt.log.writeln('running html-snapshot task...hold your horses');
     });
 };
